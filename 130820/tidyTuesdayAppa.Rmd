@@ -17,7 +17,7 @@ output:
 
 
 ## Load data and packages
-```{r}
+```{r message=TRUE, warning=FALSE}
 library(tibble)
 library(dplyr)
 library(tidyr)
@@ -36,10 +36,13 @@ scene_description <- readr::read_csv('https://raw.githubusercontent.com/rfordata
 Let's make a simple graph to see the connection among characters and some important concepts in the series. The most times the character said something, stronger will be the connection between them. This will show in proximity and size of the connection in the network.
 
 ```{r}
+# Get rid of scene descriptions
 avatar <- avatar %>% 
           filter(character != "Scene Description")
 ```
-
+## Select characters and words of interest
+Also classify each one as pertaining to one of the tribes or
+a concept.
 ```{r}
 characters <- c("Aang", "Sokka", "Katara", "Toph", "Zuko",
                  "Iroh", "Ozai","Azula")
@@ -48,8 +51,8 @@ words_of_interest <- c("Avatar", "Aang", "Sokka", "Katara",
                        "Azula", "kill", "Sozin's Comet", 
                        "save", "Earth Kingdom", "spirit",
                        "Appa","bison" ,"Ozai", "moon",
-                       "agni kai", "bending", "water tribe",
-                       "balance")
+                       "Agni Kai", "bending", "water tribe",
+                       "balance", "honor", "Dai Li")
 
 tribes <- c("concept", "air", "water","water",
             "earth", "fire", "fire", "fire",
@@ -57,7 +60,7 @@ tribes <- c("concept", "air", "water","water",
             "concept", "earth", "concept",
             "air", "air", "fire", "water",
             "fire", "concept", "water",
-            "balance")
+            "concept", "concept", "earth")
 
 levels_tribes <- sort(unique(tribes))
 tribes <- data.frame(words = words_of_interest, 
@@ -66,10 +69,13 @@ tribes <- data.frame(words = words_of_interest,
                                      ordered = TRUE
                                      )
                      )
-  
+```
 
+## Prepare graph
+```{r}
 adjacencies <- rep(list(words_of_interest),length(characters))
 names(adjacencies) <- characters
+
 adjacencies <- adjacencies %>% 
   enframe("character", "word") %>% 
   unnest(word) %>% 
@@ -79,52 +85,44 @@ adjacencies <- adjacencies %>%
   mutate(weight = map_dbl(lines, ~sum(str_count(.$character_words, word)))) %>% 
   filter(weight > 4, character != word) %>% 
   select(-lines)
-  
 
-counter <-  function(character, word){
-          sum(str_count(filter(avatar,
-                               character == character)$character_words,
-                        word))
-}
-
-adjacencies3 <- adjacencies2 %>% 
-  group_by(character, word) %>% 
-  mutate(what = map_dbl(lines, ~sum(str_count(.$character_words, word))))
+graph <- graph_from_data_frame(adjacencies)
+graph <- as_tbl_graph(graph)
+graph <- left_join(graph, tribes, by = c(name = "words"))
 ```
+
 
 ```{r}
 theme_set(theme_bw(16))
 
+# Avatar fill color scale
 avatar_fill <- function (...) { scale_fill_manual(values =  c(
                                "#F1B84A", "grey20", 
                                "#4FA24C", "#900B0B",
                                "#4A82CB")
 ) }
-
+avatar_color <- function (...) { scale_colour_manual(values =  c(
+                               "#F1B84A", "grey20", 
+                               "#4FA24C", "#900B0B",
+                               "#4A82CB")
+) }
+# Avatar font
 windowsFonts(avatar_font = windowsFont("Herculanum"))
-
-graph <- graph_from_data_frame(adjacencies)
-graph <- as_tbl_graph(graph)
-graph <- left_join(graph, tribes, by = c(name = "words"))
 
 ggraph(graph, layout = 'fr')+
     geom_edge_link(aes(width = weight), color = 'grey70')+
-    geom_node_point()+
+    geom_node_point(aes(color = tribes))+
     geom_node_label(aes(label = name, fill = tribes),
                     color = "white", fontface = "bold",
-                    family = "avatar_font", size = 6)+
-   avatar_fill()
-```
+                    family = "avatar_font", size = 6,
+                    repel = TRUE)+
+   avatar_fill()+
+  avatar_color()+
+  theme(legend.position = "top")+
+  labs(title = "Avatar referencing graph", color = "Tribes",
+       fill = "Tribes", width = "Weight")
 
-```{r}
-avatar %>%
-group_by(book) %>%
-summarise(imdb = mean(imdb_rating, na.rm = T)) %>% 
-ggplot()
-
-avatar %>% 
-  ggplot(aes(book, imdb_rating, fill = book))+
-  geom_boxplot()+
-  avatar_fill()
+# Not embedding fonts for some reason... =/
+#ggsave('avatar_graph.png', type = "cairo", dpi = 400)
 ```
 
